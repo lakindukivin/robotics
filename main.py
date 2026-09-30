@@ -14,6 +14,19 @@ WHITE_VALUE = 25
 BLACK_VALUE = 8
 TURN_ANGLE = 2
 DRIVE_SPEED = 20
+MIN_SPEED = 70       # mm/s, forward speed after a turn (was 100)
+MAX_SPEED = 120      # mm/s, forward speed cap (was 180)
+FORWARD_WAIT = 100   # ms max length of one forward step (was 250)
+SENSOR_CHECK = 20    # ms between sensor checks inside forward / turn actions
+
+# --- Obstacle reverse + U-turn ---
+# These are COMMANDED values in DriveBase units, NOT real mm / degrees
+# (DriveBase is configured with wheel_diameter=40, axle_track=50, which does not
+# match the real robot). Tune them with CALIBRATE_TURN = True (see bottom of file):
+#   new U_TURN_CMD = U_TURN_CMD * 180 / (real angle turned, in degrees)
+#   new REVERSE_CMD = REVERSE_CMD * (wanted mm) / (real mm reversed)
+REVERSE_CMD = 36     # commanded distance to back away from the obstacle
+U_TURN_CMD = 830     # commanded angle for the U-turn (666 gave ~130 degrees)
 ALPHA = 0.1  # Learning rate
 EPSILON = 1  # Exploration rate
 GAMMA = 0.9  # Discount factor
@@ -56,32 +69,54 @@ def get_light_state():
 
 # Robot actions
 def forward(robot, previous_light_state):
-    speed = min(max(100,(robot.state()[1]))+5,180)
+    speed = min(max(MIN_SPEED,(robot.state()[1]))+5,MAX_SPEED)
     robot.drive(speed,0)
-    wait(250) 
+    # keep checking the sensor; end the step as soon as the robot leaves the edge
+    for i in range(FORWARD_WAIT // SENSOR_CHECK):
+        wait(SENSOR_CHECK)
+        if get_light_state() != previous_light_state:
+            break
 
 def turn_left(robot, previous_light_state):
+    robot.drive(10,-110)
     while previous_light_state == get_light_state() :
-        robot.drive(10,-110)
-        wait(100) 
+        wait(SENSOR_CHECK)
+    robot.stop()  # stop turning as soon as the state changes (no overshoot)
 
 def turn_right(robot,previous_light_state):
+    robot.drive(10,110)
     while previous_light_state == get_light_state():
-        robot.drive(10,110)
-        wait(100) 
+        wait(SENSOR_CHECK)
+    robot.stop()  # stop turning as soon as the state changes (no overshoot)
 
 def backward(robot, previous_light_state,mode):
-    for i in range(5):
-        robot.turn((-1 if mode else 1) *TURN_ANGLE * 10)
-        ev3.speaker.beep()
+    # 1) Reverse a bit to clear the obstacle
+    robot.straight(-REVERSE_CMD)
+    # 2) U-turn in place (left when mode is True, right when False)
+    robot.turn((-1 if mode else 1) * U_TURN_CMD)
     ev3.speaker.beep()
-    
-    while not (
-        light_sensor.reflection() > BLACK_VALUE
-        and light_sensor.reflection() < WHITE_VALUE
-    ):
-        robot.turn((-1 if mode else 1) * TURN_ANGLE*10)
-        ev3.speaker.beep()
+    print("U-turn: reverse cmd", REVERSE_CMD, "turn cmd", U_TURN_CMD, "reflection", light_sensor.reflection())
+
+def find_path(robot):
+    # After the turn, go and find the line again (no RL), then hand back to the Q-table.
+    # 1) creep forward until the sensor sees the line edge (grey)
+    robot.drive(50,0)
+    for i in range(100):  # about 2 seconds
+        if get_light_state() == 'MIDDLE':
+            robot.stop()
+            return
+        wait(20)
+    # 2) not found: sweep left, right, left ... a bit wider each time
+    direction = -1
+    for span in (1000,2000,4000):  # ms
+        robot.drive(0, direction*100)
+        for i in range(span//20):
+            if get_light_state() == 'MIDDLE':
+                robot.stop()
+                return
+            wait(20)
+        direction = -direction
+    robot.stop()
 
 actions = [forward, turn_left, turn_right]
 modes = [True,False]
@@ -165,6 +200,7 @@ def learn():
 
 def obstacle_avoidance(mode):
     backward(robot, light_sensor, mode)
+    find_path(robot)
 
 def line_following(Q_table, mode, light_state):
     action = get_best_action(Q_table, mode,light_state)[0]  # Choose the action with the highest Q-value
@@ -207,12 +243,17 @@ def run():
             ev3.speaker.say("Avoiding Obstacle")
             obstacle_avoidance(mode)
             mode = not mode
+            light_state = get_light_state()  # refresh after the U-turn
         else:
             mode, light_state = line_following(Q_table, mode, light_state)
 
 TRAINING = False
+CALIBRATE_TURN = False  # True: only do the reverse + U-turn once and stop (for tuning)
 
-if(TRAINING):
-    learn()
+if(CALIBRATE_TURN):
+    backward(robot, None, True)
+else:
+    if(TRAINING):
+        learn()
 
-run()
+    run()
