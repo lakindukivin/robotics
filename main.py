@@ -14,19 +14,13 @@ WHITE_VALUE = 25
 BLACK_VALUE = 8
 TURN_ANGLE = 2
 DRIVE_SPEED = 20
-MIN_SPEED = 70       # mm/s, forward speed after a turn (was 100)
-MAX_SPEED = 120      # mm/s, forward speed cap (was 180)
-FORWARD_WAIT = 100   # ms max length of one forward step (was 250)
-SENSOR_CHECK = 20    # ms between sensor checks inside forward / turn actions
+MIN_SPEED = 70       
+MAX_SPEED = 120      
+FORWARD_WAIT = 100   
+SENSOR_CHECK = 20    
 
-# --- Obstacle reverse + U-turn ---
-# These are COMMANDED values in DriveBase units, NOT real mm / degrees
-# (DriveBase is configured with wheel_diameter=40, axle_track=50, which does not
-# match the real robot). Tune them with CALIBRATE_TURN = True (see bottom of file):
-#   new U_TURN_CMD = U_TURN_CMD * 180 / (real angle turned, in degrees)
-#   new REVERSE_CMD = REVERSE_CMD * (wanted mm) / (real mm reversed)
-REVERSE_CMD = 36     # commanded distance to back away from the obstacle
-U_TURN_CMD = 830     # commanded angle for the U-turn (666 gave ~130 degrees)
+REVERSE_CMD = 36     
+U_TURN_CMD = 830    
 ALPHA = 0.1  # Learning rate
 EPSILON = 1  # Exploration rate
 GAMMA = 0.9  # Discount factor
